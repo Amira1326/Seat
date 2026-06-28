@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بوابة الطفل - مؤشر مقاعد القبول</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
+        body { font-family: 'Cairo', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between">
+
+    <header class="bg-white shadow-xs py-10 text-center border-b border-slate-100 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto flex flex-col items-center gap-3">
+            <div class="text-5xl mb-1 select-none">🏫</div>
+            <h1 class="text-4xl font-black text-slate-900 tracking-tight">بوابة الطفل</h1>
+            <p class="text-md font-semibold text-slate-500 bg-slate-100 px-4 py-1.5 rounded-full mt-2">
+                نظام مؤشر مقاعد القبول والتسجيل السحابي
+            </p>
+        </div>
+    </header>
+
+    <main class="max-w-7xl w-full mx-auto p-6 my-auto">
+        <div id="stages-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            </div>
+    </main>
+
+    <footer class="text-center py-5 text-xs text-slate-400 border-t border-slate-100 bg-white mt-8">
+        جميع البيانات محفوظة ومحدثة سحابياً بشكل تلقائي ومحمية من التعديل العام.
+    </footer>
+
+    <script>
+        // --- الإعدادات الأساسية ---
+        const NAMESPACE = "kidsgate_admission_2026_final"; // مساحة اسم نظيفة لإنطلاق النظام
+        const ADMIN_PIN = "1234"; // الرمز السري الخاص بكِ للتعديل
+        let isAdminAuthenticated = false; // حفظ حالة الرمز السري لمرة واحدة فقط
+
+        // --- هيكل البيانات للفصول وألوان الشعار المستوحاة ---
+        const STAGES = {
+            prekg: { name: "Pre-KG", max: 20, desc: "فصل مستقل", bg: "emerald" },
+            
+            // تقسيم KG 1 (30 مقعداً لكل فصل)
+            kg1_c1: { name: "KG 1 - فصل 1", max: 30, desc: "فصل مستقل", bg: "emerald" },
+            kg1_c2: { name: "KG 1 - فصل 2", max: 30, desc: "فصل مستقل", bg: "emerald" },
+            kg1_c3: { name: "KG 1 - فصل 3", max: 30, desc: "فصل مستقل", bg: "emerald" },
+            
+            // تقسيم KG II (25 مقعداً لكل فصل)
+            kg2_c1: { name: "KG II - فصل 1", max: 25, desc: "فصل مستقل", bg: "emerald" },
+            kg2_c2: { name: "KG II - فصل 2", max: 25, desc: "فصل مستقل", bg: "emerald" },
+            
+            // باقي الصفوف والمراحل
+            g1_girls: { name: "Grade 1 - بنات", max: 20, desc: "فصل واحد", bg: "red" },
+            g1_boys: { name: "Grade 1 - أولاد", max: 20, desc: "فصل واحد", bg: "sky" },
+            g2_girls: { name: "Grade 2 - بنات", max: 20, desc: "فصل واحد", bg: "red" },
+            g2_boys: { name: "Grade 2 - أولاد", max: 20, desc: "فصل واحد", bg: "sky" },
+            g3_girls: { name: "Grade 3 - بنات", max: 20, desc: "فصل واحد", bg: "red" },
+            g3_boys: { name: "Grade 3 - أولاد", max: 25, desc: "فصل واحد", bg: "sky" },
+            g4_girls: { name: "Grade 4 - بنات", max: 20, desc: "فصل واحد", bg: "red" }
+        };
+
+        // --- دالة بناء واجهة المستخدم ديناميكياً ---
+        function renderCards() {
+            const grid = document.getElementById("stages-grid");
+            grid.innerHTML = ""; 
+
+            for (let key in STAGES) {
+                const stage = STAGES[key];
+                
+                let badgeColor = "bg-emerald-50 text-emerald-700";
+                if (stage.bg === "red") badgeColor = "bg-red-50 text-red-700";
+                if (stage.bg === "sky") badgeColor = "bg-sky-50 text-sky-700";
+
+                const cardHtml = `
+                    <div class="bg-white rounded-2xl shadow-xs border border-slate-100 p-6 flex flex-col justify-between transition-all hover:shadow-md hover:border-blue-100" id="card-${key}">
+                        <div>
+                            <div class="flex justify-between items-start mb-4">
+                                <span class="${badgeColor} text-xs font-bold px-3 py-1 rounded-full">${stage.desc}</span>
+                                <span id="badge-${key}" class="text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">متاح</span>
+                            </div>
+                            <h3 class="text-xl font-extrabold text-slate-800 mb-2">${stage.name}</h3>
+                            <p class="text-sm text-slate-500 mb-4">السعة السنوية: ${stage.max} مقعد</p>
+                            
+                            <div class="w-full bg-slate-100 rounded-full h-3 mb-4 overflow-hidden border border-slate-200">
+                                <div id="progress-${key}" class="h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <div class="text-center my-4">
+                                <span id="count-${key}" class="text-4xl font-black text-slate-900">0</span>
+                                <span class="text-slate-500 text-sm"> / ${stage.max} طالب</span>
+                            </div>
+                            <div class="flex gap-2.5 mt-3">
+                                <button onclick="updateSeat('${key}', 'up')" class="flex-1 bg-slate-950 hover:bg-slate-800 text-white font-extrabold py-3 rounded-xl text-lg transition-colors cursor-pointer">+</button>
+                                <button onclick="updateSeat('${key}', 'down')" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold py-3 rounded-xl text-lg transition-colors cursor-pointer">-</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                grid.insertAdjacentHTML('beforeend', cardHtml);
+            }
+        }
+
+        // --- دالة جلب البيانات من السحاب ---
+        async function loadData() {
+            for (let key in STAGES) {
+                try {
+                    const response = await fetch(`https://api.counterapi.dev/v1/${NAMESPACE}/${key}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        updateUI(key, data.value);
+                    } else {
+                        updateUI(key, 0); 
+                    }
+                } catch (error) {
+                    console.error(`خطأ في جلب بيانات المرحلة ${key}:`, error);
+                }
+            }
+        }
+
+        // --- دالة تحديث الألوان والعدادات ---
+        function updateUI(key, value) {
+            const stage = STAGES[key];
+            document.getElementById(`count-${key}`).innerText = value;
+            
+            const percentage = Math.min((value / stage.max) * 100, 100);
+            const progressBar = document.getElementById(`progress-${key}`);
+            const badge = document.getElementById(`badge-${key}`);
+            
+            progressBar.style.width = `${percentage}%`;
+            
+            if (value >= stage.max) {
+                badge.innerText = "اكتملت المقاعد";
+                badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-red-100 text-red-700 border border-red-200 animated pulse infinite";
+                progressBar.className = "bg-red-500 h-3 rounded-full transition-all duration-500";
+            } else {
+                badge.innerText = "متاح";
+                badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200";
+                
+                if (stage.bg === 'emerald') progressBar.className = "bg-emerald-500 h-3 rounded-full transition-all duration-500";
+                if (stage.bg === 'red') progressBar.className = "bg-red-500 h-3 rounded-full transition-all duration-500";
+                if (stage.bg === 'sky') progressBar.className = "bg-sky-500 h-3 rounded-full transition-all duration-500";
+            }
+        }
+
+        // --- دالة تعديل المقاعد الآمنة والذكية تمنع التجاوز الخطأ ---
+        async function updateSeat(key, action) {
+            const stage = STAGES[key];
+            const currentCount = parseInt(document.getElementById(`count-${key}`).innerText) || 0;
+
+            if (action === 'up' && currentCount >= stage.max) {
+                alert(`عذراً! تم اكتمال المقاعد تماماً في ${stage.name} ولا يمكن تجاوز الحد الأقصى (${stage.max} مقعد).`);
+                return;
+            }
+
+            if (action === 'down' && currentCount <= 0) {
+                alert(`العداد حالياً عند الصفر في ${stage.name}.`);
+                return;
+            }
+
+            if (!isAdminAuthenticated) {
+                const pin = prompt("الرجاء إدخال الرمز السري لتفعيل وضع التعديل (لمرة واحدة فقط):");
+                if (pin !== ADMIN_PIN) {
+                    alert("الرمز السري غير صحيح! لا يمكن تعديل البيانات.");
+                    return;
+                }
+                isAdminAuthenticated = true; 
+            }
+
+            document.getElementById(`count-${key}`).innerText = "...";
+
+            try {
+                const response = await fetch(`https://api.counterapi.dev/v1/${NAMESPACE}/${key}/${action}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    updateUI(key, data.value);
+                } else {
+                    alert("حدث خطأ أثناء التحديث بالسحاب.");
+                    loadData();
+                }
+            } catch (error) {
+                alert("فشل الاتصال بالإنترنت.");
+                loadData();
+            }
+        }
+
+        window.onload = function() {
+            renderCards();
+            loadData();
+        };
+    </script>
+</body>
+</html>
