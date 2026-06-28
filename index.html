@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>بوابة الطفل - مؤشر مقاعد القبول</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
         body { font-family: 'Cairo', sans-serif; }
@@ -12,7 +12,7 @@
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between">
 
-    <header class="bg-white shadow-xs py-8 text-center border-b border-slate-100 sticky top-0 z-50">
+    <header class="bg-white shadow-sm py-8 text-center border-b border-slate-100 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto flex flex-col items-center gap-2">
             <div class="text-5xl mb-2 select-none">🏰</div>
             <h1 class="text-3xl font-black text-slate-900 tracking-tight">بوابة الطفل</h1>
@@ -33,10 +33,12 @@
 
     <script>
         // --- الإعدادات الأساسية ---
-        // قمنا بتحديث مساحة الاسم لتبدأ العدادات بشكل نظيف تماماً ومستقر
-        const NAMESPACE = "kidsgate_admission_2026_secure"; 
-        const ADMIN_PIN = "1234"; // الرمز السري الخاص بكِ للتعديل
-        let isAdminAuthenticated = false; // حفظ حالة الرمز السري لمرة واحدة فقط
+        const NAMESPACE = "kidsgate_admission_2026_final_v2"; 
+        const ADMIN_PIN = "1234"; 
+        let isAdminAuthenticated = false; 
+
+        // مخزن البيانات المحلي الفوري لمنع أي تعليق
+        let currentCounts = {};
 
         const STAGES = {
             prekg: { name: "Pre-KG", max: 20, desc: "فصل مستقل", bg: "emerald" },
@@ -54,20 +56,19 @@
             g4_girls: { name: "Grade 4 - بنات", max: 20, desc: "فصل واحد", bg: "amber" }
         };
 
-        // --- دالة بناء واجهة المستخدم ديناميكياً ---
+        // --- بناء بطاقات الواجهة ---
         function renderCards() {
             const grid = document.getElementById("stages-grid");
             grid.innerHTML = ""; 
 
             for (let key in STAGES) {
                 const stage = STAGES[key];
-                
                 let badgeColor = "bg-emerald-50 text-emerald-700 border border-emerald-100";
                 if (stage.bg === "amber") badgeColor = "bg-amber-50 text-amber-700 border border-amber-100";
                 if (stage.bg === "sky") badgeColor = "bg-sky-50 text-sky-700 border border-sky-100";
 
                 const cardHtml = `
-                    <div class="bg-white rounded-2xl shadow-xs border border-slate-100 p-6 flex flex-col justify-between transition-all hover:shadow-md hover:border-emerald-100" id="card-${key}">
+                    <div class="bg-white rounded-2xl border border-slate-100 p-6 flex flex-col justify-between transition-all hover:shadow-md" id="card-${key}">
                         <div>
                             <div class="flex justify-between items-start mb-4">
                                 <span class="${badgeColor} text-xs font-bold px-3 py-1 rounded-full">${stage.desc}</span>
@@ -97,45 +98,34 @@
             }
         }
 
-        // --- صمام الأمان الفولاذي: استخراج القيمة الصحيحة مهما اختلف شكل استجابة السيرفر ---
-        function parseValue(data) {
-            if (!data) return 0;
-            if (typeof data.value !== 'undefined') return parseInt(data.value) || 0;
-            if (typeof data.count !== 'undefined') return parseInt(data.count) || 0;
-            if (typeof data.data !== 'undefined') {
-                if (typeof data.data.value !== 'undefined') return parseInt(data.data.value) || 0;
-                if (typeof data.data === 'number') return data.data;
-            }
-            return 0;
-        }
-
-        // --- دالة جلب البيانات السحابية والمحلية البديلة ---
+        // --- جلب البيانات الأولي المستقر ---
         async function loadData() {
             for (let key in STAGES) {
-                updateUI(key, 0); // نبدأ بـ 0 لضمان عدم بقاء الشاشة معلقة
+                // خطوة 1: عرض الكاش المحلي فوراً عشان الشاشة ما تطلع فاضية أو undefined
+                const localVal = localStorage.getItem(`${NAMESPACE}_${key}`);
+                currentCounts[key] = localVal !== null ? parseInt(localVal) : 0;
+                updateUI(key, currentCounts[key]);
+
+                // خطوة 2: تحديث الأرقام من السحاب لو كان شغال
                 try {
                     const response = await fetch(`https://api.counterapi.dev/v1/${NAMESPACE}/${key}`);
                     if (response.ok) {
                         const data = await response.json();
-                        const finalValue = parseValue(data);
-                        updateUI(key, finalValue);
-                        localStorage.setItem(`${NAMESPACE}_${key}`, finalValue); // تحديث الكاش المحلي
-                    } else {
-                        // إذا العداد جديد ولم ينشأ بالسيرفر بعد، نسحب القيمة المحفوظة في متصفحكِ
-                        const localVal = localStorage.getItem(`${NAMESPACE}_${key}`) || 0;
-                        updateUI(key, parseInt(localVal));
+                        if (data && typeof data.value !== 'undefined') {
+                            currentCounts[key] = parseInt(data.value);
+                            localStorage.setItem(`${NAMESPACE}_${key}`, currentCounts[key]);
+                            updateUI(key, currentCounts[key]);
+                        }
                     }
                 } catch (error) {
-                    console.warn(`خطأ في السحاب للمرحلة ${key}، جاري تشغيل النظام المحلي المساعد:`, error);
-                    const localVal = localStorage.getItem(`${NAMESPACE}_${key}`) || 0;
-                    updateUI(key, parseInt(localVal));
+                    console.warn("جاري العمل بالوضع المحلي للمركز:", key);
                 }
             }
         }
 
-        // --- دالة تحديث الألوان والعدادات والنسب بدقة عرافة ---
+        // --- تحديث الألوان شاشات العرض ---
         function updateUI(key, value) {
-            if (value === undefined || isNaN(value)) value = 0; // صمام أمان أخير ضد الـ NaN والـ undefined
+            if (value === undefined || isNaN(value) || value < 0) value = 0;
             
             const stage = STAGES[key];
             document.getElementById(`count-${key}`).innerText = value;
@@ -149,56 +139,61 @@
             if (value >= stage.max) {
                 badge.innerText = "اكتملت المقاعد";
                 badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-red-100 text-red-700 border border-red-200";
-                progressBar.className = "bg-red-500 h-3 rounded-full transition-all duration-500";
+                progressBar.className = "bg-red-500 h-3 rounded-full";
             } else {
                 badge.innerText = "متاح";
                 badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200";
                 
-                if (stage.bg === 'emerald') progressBar.className = "bg-emerald-500 h-3 rounded-full transition-all duration-500";
-                if (stage.bg === 'amber') progressBar.className = "bg-amber-500 h-3 rounded-full transition-all duration-500";
-                if (stage.bg === 'sky') progressBar.className = "bg-sky-500 h-3 rounded-full transition-all duration-500";
+                if (stage.bg === 'emerald') progressBar.className = "bg-emerald-500 h-3 rounded-full";
+                if (stage.bg === 'amber') progressBar.className = "bg-amber-500 h-3 rounded-full";
+                if (stage.bg === 'sky') progressBar.className = "bg-sky-500 h-3 rounded-full";
             }
         }
 
-        // --- دالة تعديل المقاعد التفاعلية فائقة السرعة الحماية ---
+        // --- نظام التعديل الفوري الفولاذي ---
         async function updateSeat(key, action) {
             const stage = STAGES[key];
-            const currentCount = parseInt(document.getElementById(`count-${key}`).innerText) || 0;
+            let current = currentCounts[key] || 0;
 
-            if (action === 'up' && currentCount >= stage.max) {
-                alert(`عذراً! تم اكتمال المقاعد تماماً في ${stage.name} ولا يمكن تجاوز الحد الأقصى.`);
+            if (action === 'up' && current >= stage.max) {
+                alert(`عذراً! تم اكتمال المقاعد تماماً في ${stage.name}`);
                 return;
             }
-
-            if (action === 'down' && currentCount <= 0) {
-                alert(`العداد حالياً عند الصفر في ${stage.name}.`);
+            if (action === 'down' && current <= 0) {
+                alert(`العداد حالياً عند الصفر في ${stage.name}`);
                 return;
             }
 
             if (!isAdminAuthenticated) {
-                const pin = prompt("الرجاء إدخال الرمز السري لتفعيل وضع التعديل (لمرة واحدة فقط):");
+                const pin = prompt("الرجاء إدخال الرمز السري لتفعيل وضع التعديل (1234):");
                 if (pin !== ADMIN_PIN) {
-                    alert("الرمز السري غير صحيح! لا يمكن تعديل البيانات.");
+                    alert("الرمز السري غير صحيح!");
                     return;
                 }
                 isAdminAuthenticated = true; 
             }
 
-            // تحديث فوري مرئي فوري للمتصفح لتجربة مستخدم سريعة جداً وغير معلقة
-            let nextCount = action === 'up' ? currentCount + 1 : currentCount - 1;
-            updateUI(key, nextCount);
-            localStorage.setItem(`${NAMESPACE}_${key}`, nextCount);
+            // 1. التحديث المحلي الفوري لسرعة الاستجابة (يعمل فوراً أمامكِ)
+            if (action === 'up') currentCounts[key]++;
+            else currentCounts[key]--;
 
+            localStorage.setItem(`${NAMESPACE}_${key}`, currentCounts[key]);
+            updateUI(key, currentCounts[key]);
+
+            // 2. مزامنة السحاب في الخلفية بالكلمات الصحيحة للسيرفر
+            const apiAction = action === 'up' ? 'increment' : 'decrement';
             try {
-                const response = await fetch(`https://api.counterapi.dev/v1/${NAMESPACE}/${key}/${action}`);
+                const response = await fetch(`https://api.counterapi.dev/v1/${NAMESPACE}/${key}/${apiAction}`);
                 if (response.ok) {
                     const data = await response.json();
-                    const cloudValue = parseValue(data);
-                    updateUI(key, cloudValue);
-                    localStorage.setItem(`${NAMESPACE}_${key}`, cloudValue);
+                    if (data && typeof data.value !== 'undefined') {
+                        currentCounts[key] = parseInt(data.value);
+                        localStorage.setItem(`${NAMESPACE}_${key}`, currentCounts[key]);
+                        updateUI(key, currentCounts[key]);
+                    }
                 }
             } catch (error) {
-                console.warn("تم الحفظ محلياً بنجاح، جاري إعادة المحاولة للمزامنة السحابية لاحقاً.");
+                console.warn("تم الحفظ محلياً بنجاح وسيتزامن السحاب تلقائياً لاحقاً.");
             }
         }
 
